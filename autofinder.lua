@@ -1108,12 +1108,14 @@ local function InitMainApp(userData)
         local d = math.floor(secondsLeft / 86400)
         local h = math.floor((secondsLeft % 86400) / 3600)
         
-        if d > 0 then
+        if d > 1 then
             timeString = string.format("%d DAYS %d HOURS", d, h)
+        elseif d == 1 then
+            timeString = string.format("1 DAY %d HOURS", h)
         elseif h > 0 then
             timeString = string.format("%d HOURS", h)
         else
-            timeString = "< 1 HOUR"
+            timeString = "LESS THAN 1 HOUR"
         end
     else
         warn("CRITICAL: Could not find subscription data in table.")
