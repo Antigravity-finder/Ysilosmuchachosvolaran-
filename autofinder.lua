@@ -38,10 +38,8 @@ local State = {
     AutoJoin = false,
     MinGenFilter = 0,
     NameFilter = {}, -- Tabla para multi-seleccion: { ["Doge"] = true }
-    Buffer = {},
-    Processed = {},
+    ActiveRows = {}, -- Key -> Frame
     JoinQueue = {},
-    DisplayedItems = {},
     _autoJoinRunning = false
 }
 
@@ -524,6 +522,7 @@ NFSearch:GetPropertyChangedSignal("Text"):Connect(populateNameFilter)
 
 -- Scroll Area
 local Scroll = Instance.new("ScrollingFrame")
+Scroll.Name = "ContentScroll" -- Added name for easier access
 Scroll.Size = UDim2.new(1, -48, 1, -135)
 Scroll.Position = UDim2.new(0, 24, 0, 125)
 Scroll.BackgroundTransparency = 1
@@ -538,26 +537,20 @@ ListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 ListLayout.Parent = Scroll
 
 -- Toggle UI Button (Mini button)
-local ToggleFrame = Instance.new("Frame")
+-- Toggle UI Button (Draggable Logo)
+local ToggleFrame = Instance.new("ImageButton") 
 ToggleFrame.Name = "ToggleAntigravity"
-ToggleFrame.Size = UDim2.new(0, 45, 0, 45)
-ToggleFrame.Position = UDim2.new(0, 10, 0.5, -22)
-ToggleFrame.BackgroundColor3 = THEME.Background
+ToggleFrame.Size = UDim2.new(0, 50, 0, 50)
+ToggleFrame.Position = UDim2.new(0, 20, 0.5, -25)
+ToggleFrame.BackgroundColor3 = THEME.CardBG
+ToggleFrame.Image = "https://i.imgur.com/4M34hi2.png" -- Antigravity Logo
 ToggleFrame.Active = true
 ToggleFrame.Parent = ScreenGui
 
-local TFCorner = Instance.new("UICorner"); TFCorner.CornerRadius = UDim.new(0, 10); TFCorner.Parent = ToggleFrame
-local TFStroke = Instance.new("UIStroke"); TFStroke.Color = THEME.Accent1; TFStroke.Thickness = 0; TFStroke.Parent = ToggleFrame
+local TFCorner = Instance.new("UICorner"); TFCorner.CornerRadius = UDim.new(1, 0); TFCorner.Parent = ToggleFrame
+local TFStroke = Instance.new("UIStroke"); TFStroke.Color = THEME.Accent1; TFStroke.Thickness = 2; TFStroke.Parent = ToggleFrame
 
-local ToggleBtn = Instance.new("ImageButton")
-ToggleBtn.Image = "rbxassetid://82210942144251" -- Search Icon
-ToggleBtn.Size = UDim2.new(0, 30, 0, 30)
-ToggleBtn.Position = UDim2.new(0.5, -15, 0.5, -15)
-ToggleBtn.BackgroundTransparency = 1
-ToggleBtn.ImageColor3 = THEME.Accent2
-ToggleBtn.Parent = ToggleFrame
-
-ToggleBtn.MouseButton1Click:Connect(function()
+ToggleFrame.MouseButton1Click:Connect(function()
     MainFrame.Visible = not MainFrame.Visible
 end)
 
@@ -578,28 +571,29 @@ function updateFilterValue() -- Made global to be called from menu
     saveFilterValue(newValue)
     
     -- Update Visibility
-    for _, item in ipairs(State.DisplayedItems) do
-        if item.frame and item.frame.Parent then
+    for key, itemFrame in pairs(State.ActiveRows) do
+        if itemFrame and itemFrame.Parent then
             local visible = true
-            local data = item.data.bestBrainrot
-            
+            local raw = itemFrame:GetAttribute("Data")
+            local data = raw and HttpService:JSONDecode(raw)
+            if not data then continue end
+
             -- Check Value
-            if State.MinGenFilter > 0 and item.valor < State.MinGenFilter then
+            if State.MinGenFilter > 0 and data.value < State.MinGenFilter then
                 visible = false
             end
             
             -- Check Name (Multi-Select Logic)
-            -- Si la tabla NameFilter tiene elementos (no vacía), chequeamos si el nombre esta en ella
             local hasFilter = false
             for k,v in pairs(State.NameFilter) do hasFilter = true break end
             
             if hasFilter then
-                if not (data and data.name and State.NameFilter[data.name]) then
+                if not (data.name and State.NameFilter[data.name]) then
                     visible = false
                 end
             end
             
-            item.frame.Visible = visible
+            itemFrame.Visible = visible
         end
     end
 end
@@ -623,28 +617,25 @@ else
 end
 
 local function makeKey(data)
-    -- Mejor key usando JobId si existe
-    if data.jobId then return data.jobId end
-    if data.bestBrainrot and data.bestBrainrot.name then
-        return data.bestBrainrot.name .. (data.bestBrainrot.value or 0)
-    end
-    return tostring(math.random())
+    -- Better key using JobId + ItemName
+    return (data.jobId or "unknown") .. "_" .. (data.name or "unknown")
 end
 
 local function createRow(data)
     -- data is now a specific item object mixed with server info
-    -- Structureexpected: { name="...", value=..., jobId=..., players=..., maxPlayers=..., last_seen=... }
+    -- Structure expected: { name="...", value=..., jobId=..., players=..., maxPlayers=..., last_seen=... }
     if not data or not data.name then return nil end
-    
-    local Row = Instance.new("Frame")
     
     local Row = Instance.new("Frame")
     Row.Size = UDim2.new(1, 0, 0, 50)
     Row.BackgroundColor3 = THEME.CardBG
-    -- Ordenar nuevos arriba usando timestamp negativo
+    -- Order new items by last_seen (negative for descending order)
     Row.LayoutOrder = -(data.last_seen or os.time())
-    Row.Parent = Scroll
+    -- Row.Parent = Scroll -- Parent later when adding to ActiveRows
     
+    -- Store data as an attribute for easy access during updates/filtering
+    Row:SetAttribute("Data", HttpService:JSONEncode(data))
+
     -- Decorative Gradient Stroke for Card
     local RowStroke = Instance.new("UIStroke")
     RowStroke.Thickness = 0
@@ -654,6 +645,7 @@ local function createRow(data)
     local RC = Instance.new("UICorner"); RC.CornerRadius = UDim.new(0, 10); RC.Parent = Row
     
     local NameL = Instance.new("TextLabel")
+    NameL.Name = "BrainrotName" -- Named for updateRow
     NameL.Text = data.name or "Unknown"
     NameL.Size = UDim2.new(0, 190, 0, 20)
     NameL.Position = UDim2.new(0, 15, 0, 8)
@@ -666,6 +658,7 @@ local function createRow(data)
     NameL.Parent = Row
     
     local IDL = Instance.new("TextLabel")
+    IDL.Name = "ServerInfo" -- Named for updateRow
     local plrs = data.players or "?"
     local maxP = data.maxPlayers or "?"
     IDL.Text = "SRV: " .. string.sub(tostring(data.jobId or "N/A"), 1, 8) .. " | PMS: " .. plrs .. "/" .. maxP
@@ -685,7 +678,8 @@ local function createRow(data)
     ValueContainer.Parent = Row
     
     local GenL = Instance.new("TextLabel")
-    GenL.Text = formatNumber(data.value) or "$0"
+    GenL.Name = "ValueLabel" -- Named for updateRow
+    GenL.Text = data.valueText or "$0" -- Use valueText directly
     GenL.Size = UDim2.new(1, 0, 1, 0)
     GenL.Font = Enum.Font.GothamBold
     GenL.TextColor3 = THEME.Accent2
@@ -729,58 +723,24 @@ local function createRow(data)
     return Row
 end
 
-local function processEntry(serverData)
-    -- serverData is the Full JSON object for a server (contains jobId, players, allBrainrots[])
-    if not serverData then return end
-    
-    -- Normalizar lista de items
-    local items = {}
-    if serverData.allBrainrots then
-        items = serverData.allBrainrots
-    elseif serverData.bestBrainrot then
-        items = { serverData.bestBrainrot }
+local function updateRow(frame, data)
+    -- Helper to find labels by name or hierarchy
+    local nameLbl = frame:FindFirstChild("BrainrotName")
+    local valLbl = frame:FindFirstChild("ValueLabel")
+    local srvLbl = frame:FindFirstChild("ServerInfo")
+
+    if nameLbl then nameLbl.Text = data.name end
+    if valLbl then valLbl.Text = data.valueText end
+    if srvLbl then
+        srvLbl.Text = string.format("SRV: %s | PMS: %d/%d", 
+            string.sub(data.jobId, 1, 8), 
+            data.players, 
+            data.maxPlayers)
     end
-    
-    for _, item in ipairs(items) do
-        -- Check filters immediately to save memory? 
-        -- No, user wants to filter dynamically. Store everything.
-        
-        -- Create Unique Key: JobID + ItemName
-        local key = (serverData.jobId or "unknown") .. "_" .. (item.name or "unknown")
-        local val = tonumber(item.value) or 0
-        
-        -- Si es nuevo o cambió valor
-        if State.Processed[key] ~= val then
-            State.Processed[key] = val
-            
-            -- Construct flattened object for UI
-            local uiObject = {
-                name = item.name,
-                value = val,
-                valueText = item.valueText,
-                jobId = serverData.jobId,
-                players = serverData.players,
-                maxPlayers = serverData.maxPlayers,
-                last_seen = serverData.last_seen,
-                
-                -- Fake nested for compatibility if needed elsewhere, but we updated createRow
-                bestBrainrot = item 
-            }
-            
-            local bufferItem = {
-                data = uiObject,
-                valor = val,
-                jobId = serverData.jobId
-            }
-            
-            table.insert(State.Buffer, bufferItem)
-            
-            -- Solo autojoin si cumple filtro
-            if State.MinGenFilter > 0 and val >= State.MinGenFilter then
-                 table.insert(State.JoinQueue, bufferItem)
-            end
-        end
-    end
+    -- Update LayoutOrder for sorting
+    frame.LayoutOrder = -(data.last_seen or os.time())
+    -- Update stored data attribute
+    frame:SetAttribute("Data", HttpService:JSONEncode(data))
 end
 
 -- AUTO JOIN LOGIC
@@ -819,32 +779,7 @@ local function autoJoinLoop()
     end)
 end
 
-AJButton.MouseButton1Click:Connect(function()
-    State.AutoJoin = not State.AutoJoin
-    if State.AutoJoin then
-        -- Updated Animations for new button structure
-        -- Assuming AJStatus and AJS are reachable (they are local in creating scope, but this event listener is far down?)
-        -- ERROR: AJStatus is local to the setup block. We need to access it differently or recreate the listener inside the setup block.
-        -- FIX: Since I moved the setup block to `MainFrame` creation, this listener is orphaned or needs to be inside that block.
-        -- However, this file is procedural. The listener at the end refers to `AJButton` which was created earlier.
-        -- But `AJStatus` etc were created inside the new block I pasted in step 236? NO.
-        -- In step 236 I replaced lines 115-280. I defined AJButton there.
-        -- The listener at line 580 refers to the AJButton.
-        -- But inside the new block I defined `AJStatus`. It is a local variable. It is NOT visible here.
-        -- I MUST MOVE THIS LISTENER TO BE INSIDE THE SETUP BLOCK.
-    end
-end)
--- I will comment this out and rely on the listener I added in step 236 (I check if I added it... YES I DID at the end of the replacement chunk in step 236)
--- Wait, in step 236 replacement chunk, I included `AJButton.MouseButton1Click...` at the end?
--- Let's check step 236 output.
--- The replacement content ended with `ListLayout.Parent = Scroll`.
--- Ah, the previous replacement chunk ENDED at line 280.
--- The listener is at line 580.
--- So I have a duplicate listener or I need to remove this old listener.
--- I will replace this block with nothing (remove it), because I should have added the listener in the main block.
--- Actually, I didn't add the listener in the main block in step 236. I stopped at ListLayout.
--- So I need to REWRITE this listener here, but I can't access `AJStatus` because it's local in scope.
--- Solution: I will use `AJButton:FindFirstChild("Frame")` or just change the button color directly.
+
 AJButton.MouseButton1Click:Connect(function()
     State.AutoJoin = not State.AutoJoin
     local status = AJButton:FindFirstChildOfClass("Frame") -- The dot indicator
@@ -869,7 +804,11 @@ AJButton.MouseButton1Click:Connect(function()
 end)
 
 -- Render Loop & Login Logic
+-- Render Loop & Login Logic
 local function startPolling()
+    -- Capture Login Time to filter out old logs
+    local SessionStart = os.time()
+    
     -- Start Polling Loop
     task.spawn(function()
         local req = http_request or request or (syn and syn.request)
@@ -888,9 +827,89 @@ local function startPolling()
                 if rawResponse and rawResponse.Body then
                     local response = HttpService:JSONDecode(rawResponse.Body)
                     if response and response.data then
-                        print("✅ API Response: " .. #response.data .. " items found.") -- DEBUG
+                        
+                        -- Track keys seen in this update to potentially remove old ones (optional but good)
+                        -- local validKeys = {} 
+
                         for _, serverData in ipairs(response.data) do
-                            processEntry(serverData)
+                           -- FILTER: Ignore Old Logs (Live Feed Mode)
+                           -- Only show items found/updated AFTER login
+                           if (serverData.last_seen or 0) < SessionStart then 
+                               continue 
+                           end
+                        
+                           -- Extract Brainrots
+                           local items = {}
+                           if serverData.allBrainrots then
+                               items = serverData.allBrainrots
+                           elseif serverData.bestBrainrot then
+                               items = { serverData.bestBrainrot }
+                           end
+                           
+                           for _, item in ipairs(items) do
+                                -- Unique Key: Server JobID + Brainrot Name
+                                local key = (serverData.jobId or "unknown") .. "_" .. (item.name or "unknown")
+                                -- validKeys[key] = true
+                                
+                                local val = tonumber(item.value) or 0
+                                
+                                local uiObject = {
+                                    name = item.name,
+                                    value = val,
+                                    valueText = item.valueText,
+                                    jobId = serverData.jobId,
+                                    players = serverData.players,
+                                    maxPlayers = serverData.maxPlayers,
+                                    last_seen = serverData.last_seen,
+                                    bestBrainrot = item 
+                                }
+                                
+                                -- 1. AUTO JOIN QUEUE LOGIC (Always process)
+                                if State.AutoJoin and State.MinGenFilter > 0 and val >= State.MinGenFilter then
+                                    local exists = false
+                                    for _, q in ipairs(State.JoinQueue) do 
+                                        if q.jobId == serverData.jobId then exists = true break end 
+                                    end
+                                    if not exists then
+                                         table.insert(State.JoinQueue, {data = uiObject, valor = val, jobId = serverData.jobId})
+                                    end
+                                end
+                                
+                                -- 2. UI LOGIC (Sync Rows)
+                                local row = State.ActiveRows[key]
+                                if row then
+                                    -- Update existing
+                                    updateRow(row, uiObject)
+                                    
+                                    -- Re-Check Filters
+                                    local visible = true
+                                    if State.MinGenFilter > 0 and val < State.MinGenFilter then visible = false end
+                                    local hasFilter = false
+                                    for k,v in pairs(State.NameFilter) do hasFilter = true break end
+                                    if hasFilter and not State.NameFilter[item.name] then visible = false end
+                                    
+                                    row.Visible = visible
+                                else
+                                    -- Create New
+                                    local newRow = createRow(uiObject)
+                                    if newRow then
+                                        -- Apply Filter
+                                        local visible = true
+                                        if State.MinGenFilter > 0 and val < State.MinGenFilter then visible = false end
+                                        local hasFilter = false
+                                        for k,v in pairs(State.NameFilter) do hasFilter = true break end
+                                        if hasFilter and not State.NameFilter[item.name] then visible = false end
+                                        
+                                        newRow.Visible = visible
+                                        
+                                        local Scroll = MainFrame:FindFirstChild("ContentScroll")
+                                        if Scroll then 
+                                            newRow.Parent = Scroll 
+                                            State.ActiveRows[key] = newRow
+                                        end
+                                    end
+                                end
+                           end
                         end
                     else
                         warn("⚠️ API Response empty or invalid format")
@@ -898,42 +917,6 @@ local function startPolling()
                 end
             end)
             if not s then warn("API Error: " .. tostring(err)) end
-            
-            -- UI Updates
-            if #State.Buffer > 0 then
-                for _, item in ipairs(State.Buffer) do
-                    local frame = createRow(item.data)
-                    if frame then
-                        -- Set Initial Visibility based on Filter
-                        local visible = true
-                        if State.MinGenFilter > 0 and item.valor < State.MinGenFilter then visible = false end
-                        
-                        local hasFilter = false
-                        for k,v in pairs(State.NameFilter) do hasFilter = true break end
-                        if hasFilter and not (item.data.name and State.NameFilter[item.data.name]) then 
-                            visible = false 
-                        end
-                        
-                        frame.Visible = visible
-                        table.insert(State.DisplayedItems, {valor = item.valor, frame = frame, data = item.data})
-                    end
-                end
-                State.Buffer = {}
-            end
-            
-            -- Cleanup
-            local Scroll = MainFrame and MainFrame:FindFirstChild("ContentScroll")
-            if Scroll then
-                local frames = {}
-                for _, c in ipairs(Scroll:GetChildren()) do
-                    if c:IsA("Frame") then table.insert(frames, c) end
-                end
-                if #frames > 50 then
-                    for i = 1, #frames - 40 do
-                        if frames[i] and frames[i].Destroy then frames[i]:Destroy() end
-                    end
-                end
-            end
             
             wait(1) -- Poll every 1s for realtime updates
         end
@@ -1051,82 +1034,73 @@ local function loadKey()
 end
 
 local function InitMainApp(userData)
-    -- Debug: Print structure to console to verify path
-    warn("KEYAUTH USER DATA:", game:GetService("HttpService"):JSONEncode(userData))
-
-    -- Show User Info
-    local subName = "Guest"
-    local daysLeft = 0
+    warn("--- INIT MAIN APP DEBUG ---")
+    warn("UserData Type:", type(userData))
     
-    -- Try to find subscription info
-    local subInfo = nil
-    
-    -- Structure 1: userData.subscriptions (Array)
-    if userData.subscriptions and #userData.subscriptions > 0 then
-        subInfo = userData.subscriptions[1]
-    end
-    
-    -- Structure 2: userData.info (Object) - sometimes used
-    if not subInfo and userData.info then
-        -- Some versions put subscription level in info.subscription
-        if userData.info.subscription then
-             subName = userData.info.subscription
-        end
-    end
-
-    if subInfo then
-        subName = subInfo.subscription or subName
-        
-        -- Try using 'timeleft' directly (Seconds remaining)
-        if subInfo.timeleft and tonumber(subInfo.timeleft) then
-            daysLeft = math.floor(tonumber(subInfo.timeleft) / 86400)
-        
-        -- Fallback to expiry timestamp
-        elseif subInfo.expiry then
-            local expiry = tonumber(subInfo.expiry)
-            if expiry then
-                local now = os.time()
-                if expiry > now then
-                    daysLeft = math.floor((expiry - now) / 86400)
-                else
-                    daysLeft = 0 -- Expired
-                end
+    local function findRecursive(t, target)
+        if type(t) ~= "table" then return nil end
+        if t[target] then return t end -- Found table containing key
+        for _, v in pairs(t) do
+            if type(v) == "table" then
+                local res = findRecursive(v, target)
+                if res then return res end
             end
         end
-        
-        warn("DEBUG SUB:", subName, "TimeLeft:", subInfo.timeleft, "Days:", daysLeft)
+        return nil
+    end
+
+    local subName = "Guest"
+    local daysLeft = 0
+    local foundSub = nil
+
+    -- 1. Direct Try
+    if userData.subscriptions and type(userData.subscriptions) == "table" then
+        if userData.subscriptions[1] then
+             foundSub = userData.subscriptions[1]
+             warn("Direct Access: Success")
+        end
+    end
+
+    -- 2. Recursive Search if failed
+    if not foundSub then
+        warn("Direct Access Failed. Searching recursively for 'timeleft'...")
+        foundSub = findRecursive(userData, "timeleft")
     end
     
-    SubTitle.Text = string.format("%s | %d DAYS LEFT", string.upper(subName), daysLeft)
-    SubTitle.Size = UDim2.new(0, 250, 0, 20) -- Expand width
+    -- 3. Search for 'subscription' key if 'timeleft' missing
+    if not foundSub then
+        warn("searching for 'subscription'...")
+        foundSub = findRecursive(userData, "subscription")
+    end
+
+    if foundSub then
+        warn("FOUND SUB DATA:", foundSub.subscription, "|", foundSub.timeleft)
+        subName = foundSub.subscription or subName
+        
+        if foundSub.timeleft then 
+            daysLeft = math.floor(tonumber(foundSub.timeleft) / 86400)
+        elseif foundSub.expiry then
+            local e = tonumber(foundSub.expiry)
+            if e and e > os.time() then
+                daysLeft = math.floor((e - os.time()) / 86400)
+            end
+        end
+    else
+        warn("CRITICAL: Could not find subscription data in table.")
+        -- Dump top level keys
+        for k,v in pairs(userData) do warn("Key:", k, "Type:", type(v)) end
+    end
     
-    -- Remove Borders & Enable Main UI
+    if daysLeft < 0 then daysLeft = 0 end
+
+    SubTitle.Text = string.format("%s | %d DAYS LEFT", string.upper(subName), daysLeft)
+    SubTitle.Size = UDim2.new(0, 250, 0, 20)
+    
     for _, v in ipairs(ScreenGui:GetDescendants()) do
         if v:IsA("UIStroke") then v:Destroy() end
     end
     ScreenGui.Enabled = true
     startPolling()
-end
-
-local function fetchUserData()
-    -- Construct URL for userdata request
-    local url = KeyAuth.ApiUrl .. 
-        "?type=userdata" ..
-        "&sessionid=" .. KeyAuthSession ..
-        "&name=" .. KeyAuth.AppName ..
-        "&ownerid=" .. KeyAuth.OwnerId
-
-    local req = (syn and syn.request) or request or http_request
-    local response = req({
-        Url = url,
-        Method = "GET"
-    })
-
-    if response and response.Body then
-        local data = HttpService:JSONDecode(response.Body)
-        if data.success then return data end
-    end
-    return nil
 end
 
 Button.MouseButton1Click:Connect(function()
@@ -1141,12 +1115,10 @@ Button.MouseButton1Click:Connect(function()
         
         saveKey(key) -- Save Session
         
-        -- Fetch Full User Data for Subscription Info
-        local fullData = fetchUserData() or result
-
+        -- Use result directly as it contains accurate timeleft
         wait(0.6)
         KeyGui:Destroy()
-        InitMainApp(fullData)
+        InitMainApp(result)
     else
         Status.TextColor3 = Color3.fromRGB(255,80,80)
         Status.Text = type(result) == "table" and (result.message or "Invalid Key") or "Invalid key"
@@ -1164,10 +1136,9 @@ task.spawn(function()
         if success then
              Status.TextColor3 = Color3.fromRGB(0,255,160)
              Status.Text = "Session restored!"
-             local fullData = fetchUserData() or result -- Fetch full data here too
              wait(0.5)
              KeyGui:Destroy()
-             InitMainApp(fullData)
+             InitMainApp(result)
         else
             Status.Text = "Session expired. Login."
         end
