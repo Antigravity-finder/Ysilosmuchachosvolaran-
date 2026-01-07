@@ -197,18 +197,42 @@ end
 
 local function saveFilterValue(val)
     pcall(function()
-        if writefile then writefile(SAVE_FILE, tostring(math.floor(val))) end
+        local data = {
+            minGen = val,
+            nameFilter = State.NameFilter
+        }
+        if writefile then writefile(SAVE_FILE, HttpService:JSONEncode(data)) end
     end)
 end
 
 local function loadSavedFilter()
-    local v
+    local val = 0
     pcall(function()
         if isfile and isfile(SAVE_FILE) and readfile then
-            v = tonumber(readfile(SAVE_FILE))
+            local raw = readfile(SAVE_FILE)
+            
+            -- Try JSON decode first
+            local success, data = pcall(function() return HttpService:JSONDecode(raw) end)
+            
+            if success and data and type(data) == "table" then
+                if data.minGen then val = tonumber(data.minGen) end
+                if data.nameFilter then 
+                    State.NameFilter = data.nameFilter 
+                    
+                    -- Update Button Visuals if data loaded
+                    local anyActive = false
+                    for k,v in pairs(State.NameFilter) do anyActive = true break end
+                    if FilterBtn then
+                        FilterBtn.BackgroundColor3 = anyActive and THEME.Accent1 or THEME.Background
+                    end
+                end
+            elseif tonumber(raw) then
+                -- Legacy fallback
+                val = tonumber(raw)
+            end
         end
     end)
-    return tonumber(v)
+    return val
 end
 
 local function parseMoneyValue(moneyString)
