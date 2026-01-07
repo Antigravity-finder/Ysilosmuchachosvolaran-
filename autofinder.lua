@@ -1108,6 +1108,29 @@ local function InitMainApp(userData)
     startPolling()
 end
 
+local function fetchUserData()
+    -- Construct URL for userdata request
+    local url = KeyAuth.ApiUrl .. 
+        "?type=userdata" ..
+        "&sessionid=" .. KeyAuthSession ..
+        "&name=" .. KeyAuth.AppName ..
+        "&ownerid=" .. KeyAuth.OwnerId
+
+    local req = (syn and syn.request) or request or http_request
+    local response = req({
+        Url = url,
+        Method = "POST",
+        Headers = {["Content-Type"] = "application/x-www-form-urlencoded"},
+        Body = ""
+    })
+
+    if response and response.Body then
+        local data = HttpService:JSONDecode(response.Body)
+        if data.success then return data end
+    end
+    return nil
+end
+
 Button.MouseButton1Click:Connect(function()
     Status.Text = "Checking key..."
     
@@ -1116,13 +1139,16 @@ Button.MouseButton1Click:Connect(function()
 
     if success then
         Status.TextColor3 = Color3.fromRGB(0,255,160)
-        Status.Text = "Welcome, " .. (result.username or "User")
+        Status.Text = "Welcome!"
         
         saveKey(key) -- Save Session
+        
+        -- Fetch Full User Data for Subscription Info
+        local fullData = fetchUserData() or result
 
         wait(0.6)
         KeyGui:Destroy()
-        InitMainApp(result)
+        InitMainApp(fullData)
     else
         Status.TextColor3 = Color3.fromRGB(255,80,80)
         Status.Text = type(result) == "table" and (result.message or "Invalid Key") or "Invalid key"
@@ -1140,9 +1166,10 @@ task.spawn(function()
         if success then
              Status.TextColor3 = Color3.fromRGB(0,255,160)
              Status.Text = "Session restored!"
+             local fullData = fetchUserData() or result -- Fetch full data here too
              wait(0.5)
              KeyGui:Destroy()
-             InitMainApp(result)
+             InitMainApp(fullData)
         else
             Status.Text = "Session expired. Login."
         end
