@@ -195,11 +195,13 @@ local function parseNumber(str)
     return result or MIN_VAL
 end
 
+-- UTILITIES
 local function saveFilterValue(val)
     pcall(function()
         local data = {
             minGen = val,
-            nameFilter = State.NameFilter
+            nameFilter = State.NameFilter,
+            autoExecute = State.AutoExecute
         }
         if writefile then writefile(SAVE_FILE, HttpService:JSONEncode(data)) end
     end)
@@ -210,30 +212,105 @@ local function loadSavedFilter()
     pcall(function()
         if isfile and isfile(SAVE_FILE) and readfile then
             local raw = readfile(SAVE_FILE)
-            
-            -- Try JSON decode first
             local success, data = pcall(function() return HttpService:JSONDecode(raw) end)
             
             if success and data and type(data) == "table" then
                 if data.minGen then val = tonumber(data.minGen) end
-                if data.nameFilter then 
-                    State.NameFilter = data.nameFilter 
-                    
-                    -- Update Button Visuals if data loaded
-                    local anyActive = false
-                    for k,v in pairs(State.NameFilter) do anyActive = true break end
-                    if FilterBtn then
-                        FilterBtn.BackgroundColor3 = anyActive and THEME.Accent1 or THEME.Background
-                    end
-                end
+                if data.nameFilter then State.NameFilter = data.nameFilter end
+                if data.autoExecute ~= nil then State.AutoExecute = data.autoExecute end
             elseif tonumber(raw) then
-                -- Legacy fallback
                 val = tonumber(raw)
             end
         end
     end)
     return val
 end
+
+-- EARLY AUTO-EXECUTE CHECK
+local savedVal = loadSavedFilter()
+if not State.AutoExecute and not getgenv().OverrideAutoExec then
+    warn("🚫 Antigravity AutoExecute is DISABLED in settings.")
+    warn("ℹ️ Execute 'getgenv().OverrideAutoExec = true' before script to bypass.")
+    return
+end
+
+-- PERSISTENCE: Queue on Teleport
+if syn and syn.queue_on_teleport and State.AutoExecute then
+     -- Assuming script is in autoexec or we want to persist the blob
+     -- Simplest way: Re-run the file if accessible, or just rely on AutoExec folder placement
+     -- For now we don't force queue source because user has file in autoexec
+end
+
+-- ... UI CREATION ...
+
+-- Auto Join Button (Resized)
+local AJButton = Instance.new("TextButton")
+AJButton.Text = ""
+AJButton.Size = UDim2.new(0, 90, 1, -16) -- Smaller
+AJButton.Position = UDim2.new(0, 8, 0, 8)
+AJButton.BackgroundColor3 = THEME.Background
+AJButton.Parent = ControlsBar
+local AJC = Instance.new("UICorner"); AJC.CornerRadius = UDim.new(0, 8); AJC.Parent = AJButton
+local AJS = Instance.new("UIStroke"); AJS.Color = Color3.fromRGB(60,60,80); AJS.Thickness = 0; AJS.Parent = AJButton
+
+-- ... AJ Label/Status code ...
+
+-- Auto Exec Button (New)
+local AEButton = Instance.new("TextButton")
+AEButton.Text = ""
+AEButton.Size = UDim2.new(0, 90, 1, -16)
+AEButton.Position = UDim2.new(0, 106, 0, 8) -- Right of AJ
+AEButton.BackgroundColor3 = THEME.Background
+AEButton.Parent = ControlsBar
+local AEC = Instance.new("UICorner"); AEC.CornerRadius = UDim.new(0, 8); AEC.Parent = AEButton
+local AES = Instance.new("UIStroke"); AES.Color = Color3.fromRGB(60,60,80); AES.Thickness = 0; AES.Parent = AEButton
+
+local AELabel = Instance.new("TextLabel")
+AELabel.Text = "AUTO EXEC"
+AELabel.Font = Enum.Font.GothamBold
+AELabel.TextSize = 12
+AELabel.TextColor3 = State.AutoExecute and THEME.TextWhite or THEME.TextDim 
+AELabel.Size = UDim2.new(1, -30, 1, 0)
+AELabel.Position = UDim2.new(0, 10, 0, 0)
+AELabel.BackgroundTransparency = 1
+AELabel.TextXAlignment = Enum.TextXAlignment.Left
+AELabel.Parent = AEButton
+
+local AEStatus = Instance.new("Frame")
+AEStatus.Size = UDim2.new(0, 8, 0, 8)
+AEStatus.Position = UDim2.new(1, -20, 0.5, -4)
+AEStatus.BackgroundColor3 = State.AutoExecute and THEME.Accent2 or Color3.fromRGB(60,60,60)
+AEStatus.Parent = AEButton
+local AESC = Instance.new("UICorner"); AESC.CornerRadius = UDim.new(1,0); AESC.Parent = AEStatus
+
+-- Init Style if Enabled
+if State.AutoExecute then
+    AES.Color = THEME.Accent2
+end
+
+AEButton.MouseButton1Click:Connect(function()
+    State.AutoExecute = not State.AutoExecute
+    
+    -- Visual Update
+    if State.AutoExecute then
+        TweenService:Create(AEStatus, TweenInfo.new(0.3), {BackgroundColor3 = THEME.Accent2}):Play()
+        TweenService:Create(AES, TweenInfo.new(0.3), {Color = THEME.Accent2}):Play()
+        AELabel.TextColor3 = THEME.TextWhite
+    else
+        TweenService:Create(AEStatus, TweenInfo.new(0.3), {BackgroundColor3 = Color3.fromRGB(60,60,60)}):Play()
+        TweenService:Create(AES, TweenInfo.new(0.3), {Color = Color3.fromRGB(60,60,80)}):Play()
+        AELabel.TextColor3 = THEME.TextDim
+    end
+    
+    saveFilterValue(State.MinGenFilter)
+end)
+
+-- Input Filter (Repositioned)
+local FilterContainer = Instance.new("Frame")
+FilterContainer.Size = UDim2.new(1, -210, 1, -16) -- Adjusted width
+FilterContainer.Position = UDim2.new(0, 204, 0, 8) -- Adjusted pos
+FilterContainer.BackgroundColor3 = THEME.Background
+FilterContainer.Parent = ControlsBar
 
 local function parseMoneyValue(moneyString)
     if not moneyString then return 0 end
@@ -355,9 +432,10 @@ local CC = Instance.new("UICorner"); CC.CornerRadius = UDim.new(0, 10); CC.Paren
 local CS = Instance.new("UIStroke"); CS.Color = Color3.fromRGB(40,40,60); CS.Thickness = 0; CS.Parent = ControlsBar
 
 -- Auto Join Toggle
+-- Auto Join Toggle
 local AJButton = Instance.new("TextButton")
 AJButton.Text = ""
-AJButton.Size = UDim2.new(0, 120, 1, -16)
+AJButton.Size = UDim2.new(0, 90, 1, -16) -- Adjusted Size
 AJButton.Position = UDim2.new(0, 8, 0, 8)
 AJButton.BackgroundColor3 = THEME.Background
 AJButton.Parent = ControlsBar
@@ -382,10 +460,60 @@ AJStatus.BackgroundColor3 = Color3.fromRGB(60,60,60)
 AJStatus.Parent = AJButton
 local AJSC = Instance.new("UICorner"); AJSC.CornerRadius = UDim.new(1,0); AJSC.Parent = AJStatus
 
+-- Auto Exec Button (New)
+local AEButton = Instance.new("TextButton")
+AEButton.Text = ""
+AEButton.Size = UDim2.new(0, 90, 1, -16)
+AEButton.Position = UDim2.new(0, 106, 0, 8) -- Positioned Right of AJ
+AEButton.BackgroundColor3 = THEME.Background
+AEButton.Parent = ControlsBar
+local AEC = Instance.new("UICorner"); AEC.CornerRadius = UDim.new(0, 8); AEC.Parent = AEButton
+local AES = Instance.new("UIStroke"); AES.Color = Color3.fromRGB(60,60,80); AES.Thickness = 0; AES.Parent = AEButton
+
+local AELabel = Instance.new("TextLabel")
+AELabel.Text = "AUTO EXEC"
+AELabel.Font = Enum.Font.GothamBold
+AELabel.TextSize = 12
+AELabel.TextColor3 = State.AutoExecute and THEME.TextWhite or THEME.TextDim 
+AELabel.Size = UDim2.new(1, -30, 1, 0)
+AELabel.Position = UDim2.new(0, 10, 0, 0)
+AELabel.BackgroundTransparency = 1
+AELabel.TextXAlignment = Enum.TextXAlignment.Left
+AELabel.Parent = AEButton
+
+local AEStatus = Instance.new("Frame")
+AEStatus.Size = UDim2.new(0, 8, 0, 8)
+AEStatus.Position = UDim2.new(1, -20, 0.5, -4)
+AEStatus.BackgroundColor3 = State.AutoExecute and THEME.Accent2 or Color3.fromRGB(60,60,60)
+AEStatus.Parent = AEButton
+local AESC = Instance.new("UICorner"); AESC.CornerRadius = UDim.new(1,0); AESC.Parent = AEStatus
+
+-- Init Style if Enabled
+if State.AutoExecute then
+    AES.Color = THEME.Accent2
+end
+
+AEButton.MouseButton1Click:Connect(function()
+    State.AutoExecute = not State.AutoExecute
+    
+    -- Visual Update
+    if State.AutoExecute then
+        TweenService:Create(AEStatus, TweenInfo.new(0.3), {BackgroundColor3 = THEME.Accent2}):Play()
+        TweenService:Create(AES, TweenInfo.new(0.3), {Color = THEME.Accent2}):Play()
+        AELabel.TextColor3 = THEME.TextWhite
+    else
+        TweenService:Create(AEStatus, TweenInfo.new(0.3), {BackgroundColor3 = Color3.fromRGB(60,60,60)}):Play()
+        TweenService:Create(AES, TweenInfo.new(0.3), {Color = Color3.fromRGB(60,60,80)}):Play()
+        AELabel.TextColor3 = THEME.TextDim
+    end
+    
+    saveFilterValue(State.MinGenFilter)
+end)
+
 -- Input Filter
 local FilterContainer = Instance.new("Frame")
-FilterContainer.Size = UDim2.new(1, -145, 1, -16)
-FilterContainer.Position = UDim2.new(0, 137, 0, 8)
+FilterContainer.Size = UDim2.new(1, -210, 1, -16) -- Adjusted Width
+FilterContainer.Position = UDim2.new(0, 204, 0, 8) -- Adjusted Position
 FilterContainer.BackgroundColor3 = THEME.Background
 FilterContainer.Parent = ControlsBar
 local FC = Instance.new("UICorner"); FC.CornerRadius = UDim.new(0, 8); FC.Parent = FilterContainer
