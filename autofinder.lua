@@ -1061,30 +1061,44 @@ local function loadKey()
 end
 
 local function InitMainApp(userData)
-    -- Show User Info in Header
-    local UserInfo = Instance.new("TextLabel")
-    UserInfo.Name = "UserInfo"
-    UserInfo.Size = UDim2.new(1, -20, 0, 40)
-    UserInfo.Position = UDim2.new(0, 10, 0, 0) -- Top of Controls? No, put in Header actually or separate
-    -- Let's append to Title or SubTitle
-    
-    -- Parse Subscription
+    -- Debug: Print structure to console to verify path
+    warn("KEYAUTH USER DATA:", game:GetService("HttpService"):JSONEncode(userData))
+
+    -- Show User Info
     local subName = "Guest"
     local daysLeft = 0
     
-    if userData and userData.subscriptions and userData.subscriptions[1] then
-        subName = userData.subscriptions[1].subscription or "Premium"
-        local expiry = tonumber(userData.subscriptions[1].expiry)
+    -- Try to find subscription info
+    local subInfo = nil
+    
+    -- Structure 1: userData.subscriptions (Array)
+    if userData.subscriptions and #userData.subscriptions > 0 then
+        subInfo = userData.subscriptions[1]
+    end
+    
+    -- Structure 2: userData.info (Object) - sometimes used
+    if not subInfo and userData.info then
+        -- Some versions put subscription level in info.subscription
+        if userData.info.subscription then
+             subName = userData.info.subscription
+        end
+    end
+
+    if subInfo then
+        subName = subInfo.subscription or subName
+        local expiry = tonumber(subInfo.expiry)
         if expiry then
-            daysLeft = math.floor((expiry - os.time()) / 86400)
+            local now = os.time()
+            if expiry > now then
+                daysLeft = math.floor((expiry - now) / 86400)
+            else
+                daysLeft = 0 -- Expired
+            end
         end
     end
     
     SubTitle.Text = string.format("%s | %d DAYS LEFT", string.upper(subName), daysLeft)
-    SubTitle.Size = UDim2.new(0, 200, 0, 20) -- Expand width
-    
-    -- Format: USER: Name [PLAN] (Time)
-    -- We'll enable the UI now
+    SubTitle.Size = UDim2.new(0, 250, 0, 20) -- Expand width
     
     -- Remove Borders & Enable Main UI
     for _, v in ipairs(ScreenGui:GetDescendants()) do
