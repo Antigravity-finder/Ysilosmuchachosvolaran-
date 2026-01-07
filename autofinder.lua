@@ -99,7 +99,7 @@ local KeyAuth = {
     AppName = "Alec", -- Usando credenciales verificadas
     OwnerId = "kt0AAF7w5N",
     AppVersion = "1.3",
-    ApiUrl = "https://keyauth.win/api/1.2/",
+    ApiUrl = "https://keyauth.win/api/1.1/",
 }
 
 local KeyAuthSession = nil
@@ -112,7 +112,7 @@ local function getHWID()
 end
 
 local function initSession()
-    -- Construct URL with query parameters to ensure API reads them even if JSON body fails
+    -- GET Request style as per example
     local url = KeyAuth.ApiUrl .. "?type=init&ver=" .. KeyAuth.AppVersion .. "&name=" .. KeyAuth.AppName .. "&ownerid=" .. KeyAuth.OwnerId
     
     local req = (syn and syn.request) or request or http_request
@@ -120,15 +120,8 @@ local function initSession()
     
     local response = req({
         Url = url,
-        Method = "POST", -- KeyAuth usually accepts POST
-        Headers = {
-            ["Content-Type"] = "application/x-www-form-urlencoded" -- Try form encoding
-        },
-        Body = "" -- Empty body since params are in URL
+        Method = "GET"
     })
-    
-    -- Debug Print
-    -- warn("Sending Init to: " .. url)
     
     if response and response.Body then
         local data = HttpService:JSONDecode(response.Body)
@@ -148,7 +141,6 @@ local function validateKey(key)
         if not ok then return false, "Init Failed" end
     end
 
-    -- Construct URL with query parameters (Fix for "No OwnerID")
     local url = KeyAuth.ApiUrl .. 
         "?type=license" ..
         "&key=" .. key ..
@@ -160,15 +152,13 @@ local function validateKey(key)
     local req = (syn and syn.request) or request or http_request
     local response = req({
         Url = url,
-        Method = "POST",
-        Headers = {["Content-Type"] = "application/x-www-form-urlencoded"},
-        Body = ""
+        Method = "GET"
     })
 
     if not response or not response.Body then return false, "No response" end
 
     local decoded = HttpService:JSONDecode(response.Body)
-    warn("KeyAuth Response:", response.Body) -- DEBUG LOG
+    warn("KeyAuth License Response:", response.Body)
     
     if decoded.success then return true, decoded
     else return false, decoded.message or "Invalid key" end
@@ -1119,9 +1109,7 @@ local function fetchUserData()
     local req = (syn and syn.request) or request or http_request
     local response = req({
         Url = url,
-        Method = "POST",
-        Headers = {["Content-Type"] = "application/x-www-form-urlencoded"},
-        Body = ""
+        Method = "GET"
     })
 
     if response and response.Body then
