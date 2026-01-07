@@ -228,14 +228,14 @@ end
 
 -- EARLY AUTO-EXECUTE CHECK
 local savedVal = loadSavedFilter()
-local isAutoExecTime = game.TimeSinceLevelLoad < 20 -- Assuming AutoExec runs in first 20s
 
-if not State.AutoExecute and not getgenv().OverrideAutoExec and isAutoExecTime then
+-- Standard Check: AutoExec usually runs before game is loaded. Manual runs after.
+if not State.AutoExecute and not game:IsLoaded() and not getgenv().OverrideAutoExec then
     warn("🚫 Antigravity AutoExecute is DISABLED in settings.")
-    warn("ℹ️ To Enable: Execute script manually after game loads fully.")
+    warn("ℹ️ Waiting for Manual Execution...")
     return
 end
-getgenv().OverrideAutoExec = false -- Reset override
+getgenv().OverrideAutoExec = false
 
 -- PERSISTENCE: Queue on Teleport
 if syn and syn.queue_on_teleport and State.AutoExecute then
