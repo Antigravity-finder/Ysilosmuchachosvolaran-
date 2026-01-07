@@ -806,8 +806,28 @@ end)
 -- Render Loop & Login Logic
 -- Render Loop & Login Logic
 local function startPolling()
-    -- Capture Login Time to filter out old logs
-    local SessionStart = os.time()
+    -- Capture Login Snapshot to filter out old logs (by JobID, not Time, to avoid timezone issues)
+    local Snapshot = {}
+    
+    task.spawn(function()
+        local req = http_request or request or (syn and syn.request)
+        if not req then return end
+        
+        -- Initial Snapshot Request
+        local s, r = pcall(function()
+            return req({Url = API_URL .. "?t=" .. tostring(math.floor(tick())), Method = "GET"})
+        end)
+        
+        if s and r and r.Body then
+            local data = HttpService:JSONDecode(r.Body)
+            if data and data.data then
+                for _, srv in ipairs(data.data) do
+                    if srv.jobId then Snapshot[srv.jobId] = true end
+                end
+            end
+        end
+        warn("✅ Snapshot taken. Ignoring " .. 0 .. " existing servers.") -- Count difficult to get here easily without var, ignoring.
+    end)
     
     -- Start Polling Loop
     task.spawn(function()
@@ -828,13 +848,9 @@ local function startPolling()
                     local response = HttpService:JSONDecode(rawResponse.Body)
                     if response and response.data then
                         
-                        -- Track keys seen in this update to potentially remove old ones (optional but good)
-                        -- local validKeys = {} 
-
                         for _, serverData in ipairs(response.data) do
-                           -- FILTER: Ignore Old Logs (Live Feed Mode)
-                           -- Only show items found/updated AFTER login
-                           if (serverData.last_seen or 0) < SessionStart then 
+                           -- FILTER: Ignore Snapshot Logs (Live Feed Mode)
+                           if Snapshot[serverData.jobId] then 
                                continue 
                            end
                         
@@ -849,7 +865,6 @@ local function startPolling()
                            for _, item in ipairs(items) do
                                 -- Unique Key: Server JobID + Brainrot Name
                                 local key = (serverData.jobId or "unknown") .. "_" .. (item.name or "unknown")
-                                -- validKeys[key] = true
                                 
                                 local val = tonumber(item.value) or 0
                                 
@@ -1073,27 +1088,38 @@ local function InitMainApp(userData)
         foundSub = findRecursive(userData, "subscription")
     end
 
+    local timeString = "0 DAYS"
+    
     if foundSub then
         warn("FOUND SUB DATA:", foundSub.subscription, "|", foundSub.timeleft)
         subName = foundSub.subscription or subName
         
+        local secondsLeft = 0
+        
         if foundSub.timeleft then 
-            daysLeft = math.floor(tonumber(foundSub.timeleft) / 86400)
+            secondsLeft = tonumber(foundSub.timeleft) or 0
         elseif foundSub.expiry then
             local e = tonumber(foundSub.expiry)
             if e and e > os.time() then
-                daysLeft = math.floor((e - os.time()) / 86400)
+                secondsLeft = e - os.time()
             end
+        end
+        
+        local d = math.floor(secondsLeft / 86400)
+        local h = math.floor((secondsLeft % 86400) / 3600)
+        
+        if d > 0 then
+            timeString = string.format("%d DAYS %d HOURS", d, h)
+        elseif h > 0 then
+            timeString = string.format("%d HOURS", h)
+        else
+            timeString = "< 1 HOUR"
         end
     else
         warn("CRITICAL: Could not find subscription data in table.")
-        -- Dump top level keys
-        for k,v in pairs(userData) do warn("Key:", k, "Type:", type(v)) end
     end
-    
-    if daysLeft < 0 then daysLeft = 0 end
 
-    SubTitle.Text = string.format("%s | %d DAYS LEFT", string.upper(subName), daysLeft)
+    SubTitle.Text = string.format("%s | %s LEFT", string.upper(subName), timeString)
     SubTitle.Size = UDim2.new(0, 250, 0, 20)
     
     for _, v in ipairs(ScreenGui:GetDescendants()) do
