@@ -1076,15 +1076,25 @@ local function InitMainApp(userData)
 
     if subInfo then
         subName = subInfo.subscription or subName
-        local expiry = tonumber(subInfo.expiry)
-        if expiry then
-            local now = os.time()
-            if expiry > now then
-                daysLeft = math.floor((expiry - now) / 86400)
-            else
-                daysLeft = 0 -- Expired
+        
+        -- Try using 'timeleft' directly (Seconds remaining)
+        if subInfo.timeleft and tonumber(subInfo.timeleft) then
+            daysLeft = math.floor(tonumber(subInfo.timeleft) / 86400)
+        
+        -- Fallback to expiry timestamp
+        elseif subInfo.expiry then
+            local expiry = tonumber(subInfo.expiry)
+            if expiry then
+                local now = os.time()
+                if expiry > now then
+                    daysLeft = math.floor((expiry - now) / 86400)
+                else
+                    daysLeft = 0 -- Expired
+                end
             end
         end
+        
+        warn("DEBUG SUB:", subName, "TimeLeft:", subInfo.timeleft, "Days:", daysLeft)
     end
     
     SubTitle.Text = string.format("%s | %d DAYS LEFT", string.upper(subName), daysLeft)
